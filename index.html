@@ -1,14 +1,14 @@
 ﻿<!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Continuous User Position Tracking - Azure Maps Web SDK Samples</title>
+    <title>Extruded choropleth map - Azure Maps Web SDK Samples</title>
 
     <meta charset="utf-8" />
-    <link rel="shortcut icon" href="/favicon.ico" />
+	<link rel="shortcut icon" href="/favicon.ico"/>
     
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
-    <meta name="description" content="This sample shows how to continuously get the users position information from the browser by using the HTML5 geolocation API and update it on a map." />
-    <meta name="keywords" content="Microsoft maps, map, gis, API, SDK, geolocation, user, location, position, tracking, gps, gps tracking" />
+    <meta name="description" content="This sample shows how to create a choropleth map of extruded polygons using data driven styling." />
+    <meta name="keywords" content="Microsoft maps, map, gis, API, SDK, thematic, choropleth, heatmap, heat map, polygon extrusion, extruded polygons" />
     <meta name="author" content="Microsoft Azure Maps" /><meta name="version" content="1.0" />
     <meta name="screenshot" content="screenshot.jpg" />
 
@@ -17,11 +17,28 @@
     <script src="https://atlas.microsoft.com/sdk/javascript/mapcontrol/3/atlas.min.js"></script>
 
     <script>
-        var map, watchId, datasource, userShape;
+        var map, datasource;
+
+        var defaultColor = '#00ff80';
+        var colorScale = [
+            10, '#09e076',
+            20, '#0bbf67',
+            50, '#f7e305',
+            100, '#f7c707',
+            200, '#f78205',
+            500, '#f75e05',
+            1000, '#f72505'
+        ];
 
         function GetMap() {
             //Initialize a map instance.
             map = new atlas.Map('myMap', {
+                center: [-94.6, 39.1],
+                zoom: 3,
+
+                //Pitch the map so that the extrusion of the polygons is visible.
+                pitch: 45,
+
                 view: 'Auto',
 
                 //Add authentication details for connecting to Azure Maps.
@@ -29,8 +46,8 @@
                     //Use Azure Active Directory authentication.
                     authType: 'subscriptionKey',
                     subscriptionKey: 'IHkvNS_47Vwi6TzuAEnVS-Pp2CWAXe_1O3YG4-M8pBw',
-                    //authType: 'anonymous',
-                    //clientId: 'e6b6ab59-eb5d-4d25-aa57-581135b927f0', //Your Azure Maps client id for accessing your Azure Maps account.
+                   // authType: 'anonymous',
+                   // clientId: 'e6b6ab59-eb5d-4d25-aa57-581135b927f0', //Your Azure Maps client id for accessing your Azure Maps account.
                     getToken: function (resolve, reject, map) {
                         //URL to your authentication service that retrieves an Azure Active Directory Token.
                         var tokenServiceUrl = "https://samples.azuremaps.com/api/GetAzureMapsToken";
@@ -44,83 +61,88 @@
                 }
             });
 
+            //Create a legend.
+            createLegend();
+
             //Wait until the map resources are ready.
             map.events.add('ready', function () {
-                //Create a data source and add it to the map.
+                //Create a data source to add your data to.
                 datasource = new atlas.source.DataSource();
                 map.sources.add(datasource);
 
-                //Add a layer for rendering the users location as a symbol.
-                map.layers.add(new atlas.layer.SymbolLayer(datasource));
+                //Load a dataset of polygons that have metadata we can style against.
+                datasource.importDataFromUrl('/data/geojson/US_States_Population_Density.json');
+
+                //Create a stepped expression based on the color scale.
+                var steppedExp = [
+                    'step',
+                    ['get', 'density'],
+                    defaultColor
+                ];
+                steppedExp = steppedExp.concat(colorScale);
+
+                //Create and add a polygon extrusion layer to the map below the labels so that they are still readable.
+                map.layers.add(new atlas.layer.PolygonExtrusionLayer(datasource, null, {
+                    base: 100,
+                    fillColor: steppedExp,
+                    fillOpacity: 0.7,
+                    height: [
+                        'interpolate',
+                        ['linear'],
+                        ['get', 'density'],
+                        0, 100,
+                        1200, 960000
+                    ]
+                }), 'labels');
             });
         }
 
-        function startTracking() {
-            if (!watchId) {
-                //Watch the users position.
-                watchId = navigator.geolocation.watchPosition(function (geoPosition) {
+        function createLegend() {
+            var html = [];
+            html.push('<i style="background:', defaultColor, '"></i> 0-', colorScale[0], '<br/>');
 
-                    //Get the coordinate information from the geoPosition.
-                    var userPosition = [geoPosition.coords.longitude, geoPosition.coords.latitude];
-
-                    //TIP: altitude? in meters, speed? in meters/second and heading? in degrees are also potential properties of geoPosition.coords
-
-                    if (!userShape) {
-                        //Create a shape to show the users position and add it to the data source.
-                        userShape = new atlas.Shape(new atlas.data.Feature(new atlas.data.Point(userPosition), geoPosition));
-                        datasource.add(userShape);
-                    } else {
-                        userShape.setCoordinates(userPosition);
-                        userShape.setProperties(geoPosition);
-                    }
-
-                    //Center the map on the users position.
-                    map.setCamera({
-                        center: userPosition,
-                        zoom: 15
-                    });
-                }, function (error) {
-                    //If an error occurs when trying to access the users position information, display an error message.
-                    switch (error.code) {
-                        case error.PERMISSION_DENIED:
-                            alert('User denied the request for Geolocation.');
-                            break;
-                        case error.POSITION_UNAVAILABLE:
-                            alert('Position information is unavailable.');
-                            break;
-                        case error.TIMEOUT:
-                            alert('The request to get user position timed out.');
-                            break;
-                        case error.UNKNOWN_ERROR:
-                            alert('An unknown error occurred.');
-                            break;
-                    }
-                });
+            for (var i = 0; i < colorScale.length; i += 2) {
+                html.push(
+                    '<i style="background:', (colorScale[i + 1]), '"></i> ',
+                    colorScale[i], (colorScale[i + 2] ? '&ndash;' + colorScale[i + 2] + '<br/>' : '+')
+                );
             }
-        }
 
-        function stopTracking() {
-            //Cancel the geolocation updates.
-            navigator.geolocation.clearWatch(watchId);
-
-            //Clear all data from the map.
-            datasource.clear();
-            userShape = null;
-            watchId = null;
+            document.getElementById('legend').innerHTML += html.join('');
         }
     </script>
+    <style>
+        #legend {
+            position: absolute;
+            top: 1px;
+            left: 5px;
+            font-family: Arial;
+            font-size: 12px;
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 5px;
+            padding: 5px;
+            line-height: 20px;
+        }
+
+            #legend i {
+                width: 18px;
+                height: 18px;
+                float: left;
+                margin-right: 8px;
+                opacity: 0.7;
+            }
+    </style>
 </head>
 <body onload="GetMap()">
     <div id="myMap" style="position:relative;width:100%;min-width:290px;height:600px;"></div>
 
-    <div style="position:absolute;top:15px;left:15px;background-color:white;padding:10px;border-radius:10px;">
-        <input type="button" value="Start Continuous Tracking" onclick="startTracking()" />
-        <input type="button" value="Stop Continuous Tracking" onclick="stopTracking()" />
-    </div>
+    <div id="legend">Population Density<br />(people/mi<sup>2</sup>)<br /></div>
 
     <fieldset style="width:calc(100% - 30px);min-width:290px;margin-top:10px;">
-        <legend>Continuous User Position Tracking</legend>
-        This sample shows how to continuously get the users position information from the browser by using the HTML5 geolocation API and update it on a map.
+        <legend>Extruded choropleth map</legend>
+        This sample shows how to create a choropleth map of extruded polygons using data driven styling. 
+        A choropleth map is a thematic map in which areas are shaded or patterned in proportion to the measurement 
+        of the statistical variable being displayed on the map, in this case the population density of each state.
     </fieldset>
 </body>
 </html>
